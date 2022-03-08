@@ -1,0 +1,169 @@
+<html>
+<head>
+	<title>ov8-upload</title>
+</head>
+<body bgcolor=#303030>
+<div style="width: 400px;margin: auto;">
+	<br><br>
+	<form onsubmit="event.preventDefault();">
+		<input id="FilesToUpload" name="FilesToUpload" type="file" value="Upload" multiple>
+		<br><br>
+		totalFilesUploaded : <span id="vTotalFilesUploaded">0</span> : <span id="totalFilesCount">0</span>
+		<br>
+		totalBytesUploaded: <span id="totalBytesUploaded">0</span> : <span id="totalFilesBytes">0</span><br>
+		progressBytesUploaded : <span id="progressBytesUploaded">0</span>%
+		<br><br>
+		<button onclick="SendFiles();">submit</button>
+	</form>
+</div>
+
+<script language=javascript>
+//==============================================================================
+class WssConn
+{
+	conn;
+	url = 'ws://127.0.0.1:8888';
+	//----------------------------------------------------------------------------
+	constructor() {
+		this.conn           = new WebSocket(this.url);
+		this.conn.onmessage = this.onMessage.bind(this);
+		this.conn.onclose   = this.onClose.bind(this);
+		this.conn.onerror   = this.onError.bind(this);
+		this.conn.onopen    = this.onOpen.bind(this);
+	}
+	//----------------------------------------------------------------------------
+	onOpen(ev)    { console.log('#### onOpen:');    console.log(ev); }
+	onMessage(ev) { console.log('#### onMessage:'); console.log(ev); }
+	onClose(ev)   { console.log('#### onClose:');   console.log(ev); }
+	onError(ev)   { console.log('#### onError:');   console.log(ev); }
+
+	//----------------------------------------------------------------------------
+	SendFile(fileMeta, fileData)
+	{
+		// can't json.stringify a File object. go figure.
+		const fileMetaJson = JSON.stringify({
+			lastModified : fileMeta.lastModified,
+			name         : fileMeta.name,
+			size         : fileMeta.size,
+			type         : fileMeta.type,
+		});
+
+		// _must_ do this to encode as a ArrayBuffer / Uint8Array
+		const enc  = new TextEncoder(); // always utf-8, Uint8Array()
+		const buf1 = enc.encode('!');
+		const buf2 = enc.encode(fileMetaJson);
+		const buf3 = enc.encode("\r\n\r\n");
+		const buf4 = fileData;
+
+		var sendData = new Uint8Array(buf1.byteLength + buf2.byteLength +
+																	buf3.byteLength + buf4.byteLength);
+		sendData.set(new Uint8Array(buf1), 0);
+		sendData.set(new Uint8Array(buf2), buf1.byteLength);
+		sendData.set(new Uint8Array(buf3), buf1.byteLength + buf2.byteLength);
+		sendData.set(new Uint8Array(buf4), buf1.byteLength + buf2.byteLength + buf3.byteLength);
+
+		this.conn.binaryType = "arraybuffer";
+		// @TODO: try, catch (InvalidStateError)
+		this.conn.send(sendData);
+		this.conn.binaryType = "blob";
+		// return bool, so our caller can update the interface? 
+		// or wait for websocket resopnse? both?
+	}
+}
+const Wss = new WssConn();
+
+//==============================================================================
+function SendFiles()
+{
+	//--------------------------------------------------------------------
+	var files = document.getElementById('FilesToUpload').files;
+	console.log('files'); console.log(files);
+
+	const elTotalFilesUploaded    = document.getElementById('vTotalFilesUploaded');
+	const elTotalBytesUploaded    = document.getElementById('totalBytesUploaded');
+	const elProgressBytesUploaded = document.getElementById('progressBytesUploaded');
+
+	var totalFilesUploaded        = 0;
+	var totalBytesUploaded        = 0;
+	var totalFiles                = files.length;
+	var totalBytes                = 0;
+
+	//--------------------------------------------------------------------
+	for (let i = 0; i < totalFiles; i++) {
+		totalBytes += files[i].size;
+	}
+
+	//--------------------------------------------------------------------
+	let prevTotalBytesUploaded = 0;
+	for (let i = 0; i < totalFiles; i++)
+	{
+		const file = files[i];
+		const reader = new FileReader();
+		prevTotalBytesUploaded = totalBytesUploaded;
+
+		//----------------------------------------------------------
+		// begin reader events
+		// @TODO: TEST THIS. what happens on the server side?
+		reader.onabort     = function(e) { /* @TODO */ }
+		reader.onerror     = function(e) { /* @TODO */ }
+		reader.onloadstart = function(e) { /* @TODO */ }
+		//----------------------------------
+		reader.onprogress  = function(e) {
+			totalBytesUploaded                = prevTotalBytesUploaded + e.loaded;
+			elTotalBytesUploaded.innerHTML    = totalBytesUploaded;
+			progressBytesUploaded             = Math.floor((100 * totalBytesUploaded) / totalBytes);
+			elProgressBytesUploaded.innerHTML = progressBytesUploaded;
+			if (e.loaded === e.total) { // done.
+				prevTotalBytesUploaded = e.total;
+			}
+		}
+		//----------------------------------
+		reader.onload = function(e) // only triggered if successful
+		{
+			var rawData = new ArrayBuffer();
+			rawData = e.target.result;
+
+			Wss.SendFile(file, rawData);
+
+			totalFilesUploaded++;
+			elTotalFilesUploaded.innerHTML = totalFilesUploaded;
+			console.log(":::: FILE TRANSFERRED");
+		}
+		//----------------------------------------------------------
+		reader.readAsArrayBuffer(file); // _must_ use ArrayBuffer
+	}
+}
+
+//==============================================================================
+function bytesToPretty(numBytes) {
+	let strOut = numBytes + " bytes";
+	const aMultiples = ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"];
+	for (nMultiple =  0, nApprox = numBytes / 1024;
+			 nApprox   >  1;
+			 nApprox   /= 1024, nMultiple++) {
+		strOut = nApprox.toFixed(3)
+					 + " " + aMultiples[nMultiple]
+					 + " (" + numBytes + " bytes)";
+	}
+	return strOut;
+}
+//--------------------------------------------------------------
+// don't necessarily need this, but fold it into the final package
+function updateFileBytes() {
+	let numBytes = 0;
+	let arrFiles  = this.files;
+	let numFiles  = arrFiles.length;
+	for (let nFileId = 0; nFileId < numFiles; nFileId++) {
+		numBytes += arrFiles[nFileId].size;
+	}
+	let strBytes = bytesToPretty(numBytes);
+	let elTotalFilesCount = document.getElementById("totalFilesCount");
+	let elTotalFilesBytes = document.getElementById("totalFilesBytes");
+	elTotalFilesCount.innerHTML = numFiles;
+	elTotalFilesBytes.innerHTML = strBytes;
+}
+document.getElementById("FilesToUpload").addEventListener("change", updateFileBytes, false);
+
+</script>
+</body>
+</html>
