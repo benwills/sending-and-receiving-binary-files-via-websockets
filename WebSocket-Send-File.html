@@ -119,7 +119,7 @@ function SendFiles()
 		//----------------------------------
 		reader.onload = function(e) // only triggered if successful
 		{
-			var rawData = new ArrayBuffer();
+			let rawData = new ArrayBuffer();
 			rawData = e.target.result;
 
 			Wss.SendFile(file, rawData);
