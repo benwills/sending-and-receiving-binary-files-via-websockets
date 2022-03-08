@@ -55,8 +55,7 @@ class WssConn
 		const buf3 = enc.encode("\r\n\r\n");
 		const buf4 = fileData;
 
-		var sendData = new Uint8Array(buf1.byteLength + buf2.byteLength +
-																	buf3.byteLength + buf4.byteLength);
+		var sendData = new Uint8Array(buf1.byteLength + buf2.byteLength + buf3.byteLength + buf4.byteLength);
 		sendData.set(new Uint8Array(buf1), 0);
 		sendData.set(new Uint8Array(buf2), buf1.byteLength);
 		sendData.set(new Uint8Array(buf3), buf1.byteLength + buf2.byteLength);
